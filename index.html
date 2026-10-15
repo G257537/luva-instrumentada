@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel da luva instrumentada · EU250 Grupo 3</title>
+<style>
+  :root{--bg:#f6f4ee;--card:#ffffff;--ink:#23231f;--mut:#6b6a63;--line:#dcd8cc;--acc:#d85a30;--ok:#1d9e75;--f:#2f6fd6;--p:#e08a00;--shade:rgba(216,90,48,.14)}
+  @media (prefers-color-scheme:dark){:root{--bg:#1a1a18;--card:#242422;--ink:#ecebe4;--mut:#a3a298;--line:#3a3a36;--shade:rgba(216,90,48,.22)}}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+  header{padding:14px 18px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-bottom:1px solid var(--line)}
+  h1{font-size:18px;margin:0 12px 0 0;font-weight:600}
+  button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font:inherit;cursor:pointer}
+  button:hover{border-color:var(--acc)} button.main{background:var(--acc);border-color:var(--acc);color:#fff}
+  #status{margin-left:auto;font-size:13px;color:var(--mut)} #status b{color:var(--ink)}
+  main{padding:16px 18px;max-width:1100px;margin:0 auto}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .k{font-size:12px;color:var(--mut)} .v{font-size:28px;font-weight:600;line-height:1.2} .s{font-size:12px;color:var(--mut)}
+  .chart{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:12px}
+  .chart .t{font-size:13px;color:var(--mut);margin:0 0 4px} canvas{width:100%;height:170px;display:block}
+  table{width:100%;border-collapse:collapse;font-size:13px} th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--line)} th{color:var(--mut);font-weight:500}
+  th:first-child,td:first-child{text-align:left}
+  details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:12px 0}
+  summary{cursor:pointer;font-weight:600} input{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit;width:110px}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0} .mut{color:var(--mut);font-size:13px}
+  #log{font:12px/1.4 ui-monospace,Consolas,monospace;color:var(--mut);max-height:90px;overflow:auto;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>Luva instrumentada · tempo de contato e força</h1>
+  <button class="main" id="bBle">Conectar Bluetooth</button>
+  <button id="bUsb">Conectar USB</button>
+  <button id="bSim">Simulador</button>
+  <button id="bMark">Marcar (LED)</button>
+  <button id="bTare">Tara</button>
+  <span id="status">Desconectado</span>
+</header>
+<main>
+  <div class="cards">
+    <div class="card"><div class="k">Último contato</div><div class="v" id="cDur">—</div><div class="s" id="cDurS">ms (FSR)</div></div>
+    <div class="card"><div class="k">Média ± desvio (últimos 10)</div><div class="v" id="cMean">—</div><div class="s" id="cMeanS">ms</div></div>
+    <div class="card"><div class="k">Frequência de contatos</div><div class="v" id="cFreq">—</div><div class="s">contatos por minuto</div></div>
+    <div class="card"><div class="k">Força de pico (último)</div><div class="v" id="cForce">—</div><div class="s" id="cForceS">N (estimada)</div></div>
+  </div>
+  <div class="chart"><p class="t">Força estimada (N) · faixas laranja = contatos detectados · linhas tracejadas = marcações</p><canvas id="cvF"></canvas></div>
+  <div class="chart"><p class="t">Sinal do piezo (mV) · pulsos no toque e na soltura</p><canvas id="cvP"></canvas></div>
+  <div class="chart"><p class="t">Últimos contatos</p>
+    <table id="tbl"><thead><tr><th>#</th><th>início (s)</th><th>duração FSR (ms)</th><th>duração piezo (ms)</th><th>pico (N)</th><th>média (N)</th></tr></thead><tbody></tbody></table>
+    <div class="row"><button id="bCsvE">Baixar eventos (CSV)</button><button id="bCsvR">Baixar sinais (CSV)</button><button id="bClear">Limpar tela</button></div>
+  </div>
+  <details>
+    <summary>Calibração da força (FSR)</summary>
+    <p class="mut">Apoie um peso conhecido sobre o FSR (uma moeda ou disco rígido que cubra só a área ativa), digite a massa e clique em registrar. Use de 3 a 6 pesos diferentes. Com 1 ponto o painel ajusta só a escala; com 2 ou mais ajusta também o expoente.</p>
+    <div class="row"><label>Massa (g) <input id="calG" type="number" value="500" min="1"></label><button id="bCal">Registrar ponto (1,5 s)</button><button id="bCalClear">Limpar pontos</button></div>
+    <div class="row"><label>R do divisor (Ω) <input id="cfgR" type="number" value="10000"></label><label>Vcc (mV) <input id="cfgV" type="number" value="3300"></label></div>
+    <table id="calT"><thead><tr><th>massa (g)</th><th>força (N)</th><th>G líquida (µS)</th></tr></thead><tbody></tbody></table>
+    <p id="calR" class="mut">Calibração atual: k = 0,018 N/µS, p = 1,00 (valor inicial aproximado; calibre antes de confiar nos newtons).</p>
+  </details>
+  <div id="log"></div>
+</main>
+<script>
+'use strict';
+const UUID = { svc: '6e400001-b5a3-f393-e0a9-e50e24dcca9e', data: '6e400003-b5a3-f393-e0a9-e50e24dcca9e', cmd: '6e400002-b5a3-f393-e0a9-e50e24dcca9e' };
+const CFG = { R: 10000, VCC: 3300, k: 0.018, p: 1.0 };
+const MAXRAW = 6000;                       // ~30 s a 200 Hz
+const raw = { t: [], f: [], z: [] };
+const events = []; const marks = []; const calPts = [];
+let baseMv = null, lastT = 0, conn = 'Desconectado', calCap = null;
+let chCmd = null, bleDev = null, usbPort = null, simTimer = null;
+
+// ---------- conversões ----------
+function gFromMv(v) { v = Math.min(Math.max(v, 5), CFG.VCC - 5); return 1e6 / (CFG.R * (CFG.VCC - v) / v); }   // µS
+function forceFromG(g) { return g > 0 ? CFG.k * Math.pow(g, CFG.p) : 0; }
+function fmt(x, d) { return (x === null || x === undefined || isNaN(x)) ? '—' : x.toFixed(d); }
+
+// ---------- entrada de dados ----------
+function pushRaw(t, f, z) {
+  if (raw.t.length && t < lastT - 2000) { raw.t.length = raw.f.length = raw.z.length = 0; baseMv = null; events.length = 0; }
+  if (baseMv === null) baseMv = f;
+  if (f - baseMv < 40) baseMv += 0.002 * (f - baseMv);
+  raw.t.push(t); raw.f.push(f); raw.z.push(z); lastT = t;
+  if (raw.t.length > MAXRAW + 500) { raw.t.splice(0, 500); raw.f.splice(0, 500); raw.z.splice(0, 500); }
+  if (calCap) {
+    calCap.vals.push(Math.max(0, gFromMv(f) - gFromMv(baseMv)));
+    if (t >= calCap.until) finishCal();
+  }
+}
+function addEvent(e) {
+  if (events.length && events[events.length - 1].idx === e.idx && events[events.length - 1].tIni === e.tIni) return;
+  events.push(e); if (events.length > 200) events.shift();
+  updateCards();
+}
+function parsePacket(dv) {                         // pacotes BLE (<= 20 bytes)
+  const type = dv.getUint8(0);
+  if (type === 1 && dv.byteLength >= 18) {
+    const t0 = dv.getUint32(2, true);
+    for (let i = 0; i < 3; i++) pushRaw(t0 + 5 * i, dv.getUint16(6 + 4 * i, true), dv.getUint16(8 + 4 * i, true));
+  } else if (type === 2 && dv.byteLength >= 20) {
+    const pz = dv.getInt16(17, true);
+    addEvent({ idx: dv.getUint16(1, true), tIni: dv.getUint32(3, true), durMs: dv.getUint32(7, true) / 1000,
+               peakG: dv.getUint16(11, true), meanG: dv.getUint16(13, true), peakMv: dv.getUint16(15, true), pzDurMs: pz >= 0 ? pz / 10 : null });
+  } else if (type === 3 && dv.byteLength >= 5) marks.push(dv.getUint32(1, true));
+}
+function parseLine(line) {                         // linhas da USB-Serial
+  line = line.trim(); if (!line) return;
+  const a = line.split(',');
+  if (a[0] === 'R' && a.length >= 4) pushRaw(+a[1], +a[2], +a[3]);
+  else if (a[0] === 'E' && a.length >= 9) addEvent({ idx: +a[1], tIni: +a[2], durMs: +a[3] / 1000, peakG: +a[4], meanG: +a[5], peakMv: +a[6], pzDurMs: +a[7] >= 0 ? +a[7] / 1000 : null });
+  else if (a[0] === 'M') marks.push(+a[1]);
+  else if (line[0] === '#') log(line);
+}
+
+// ---------- estatística ----------
+function stats() {
+  const last = events.slice(-10).map(e => e.durMs);
+  const n = last.length; if (!n) return null;
+  const m = last.reduce((a, b) => a + b, 0) / n;
+  const sd = n > 1 ? Math.sqrt(last.reduce((a, b) => a + (b - m) * (b - m), 0) / (n - 1)) : 0;
+  const st = events.slice(-7).map(e => e.tIni); let cpm = null;
+  if (st.length >= 3) { const d = []; for (let i = 1; i < st.length; i++) d.push(st[i] - st[i - 1]); const md = d.reduce((a, b) => a + b, 0) / d.length; if (md > 0) cpm = 60000 / md; }
+  return { n, m, sd, cpm };
+}
+function updateCards() {
+  const e = events[events.length - 1], s = stats(); if (!e || !s) return;
+  const fp = forceFromG(e.peakG), fm = forceFromG(e.meanG);
+  el('cDur').textContent = fmt(e.durMs, 0); el('cDurS').textContent = e.pzDurMs !== null ? 'ms (FSR) · piezo: ' + fmt(e.pzDurMs, 0) + ' ms' : 'ms (FSR) · piezo: sem par';
+  el('cMean').textContent = fmt(s.m, 0) + ' ± ' + fmt(s.sd, 0); el('cMeanS').textContent = 'ms · n = ' + s.n;
+  el('cFreq').textContent = s.cpm === null ? '—' : fmt(s.cpm, 0);
+  el('cForce').textContent = fmt(fp, 1); el('cForceS').textContent = 'N (estimada) · média do contato: ' + fmt(fm, 1) + ' N';
+  const tb = el('tbl').querySelector('tbody'); tb.innerHTML = '';
+  events.slice(-8).reverse().forEach(x => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + x.idx + '</td><td>' + fmt(x.tIni / 1000, 2) + '</td><td>' + fmt(x.durMs, 0) + '</td><td>' + fmt(x.pzDurMs, 0) + '</td><td>' + fmt(forceFromG(x.peakG), 1) + '</td><td>' + fmt(forceFromG(x.meanG), 1) + '</td>';
+    tb.appendChild(tr);
+  });
+}
+
+// ---------- calibração ----------
+function fitPowerLaw(pts) {                        // F = k * G^p  (mínimos quadrados em log-log)
+  const p = pts.filter(q => q.G > 0 && q.F > 0);
+  if (!p.length) return null;
+  if (p.length === 1) return { k: p[0].F / p[0].G, p: 1 };
+  const x = p.map(q => Math.log(q.G)), y = p.map(q => Math.log(q.F)), n = p.length;
+  const mx = x.reduce((a, b) => a + b, 0) / n, my = y.reduce((a, b) => a + b, 0) / n;
+  let sxx = 0, sxy = 0; for (let i = 0; i < n; i++) { sxx += (x[i] - mx) * (x[i] - mx); sxy += (x[i] - mx) * (y[i] - my); }
+  if (sxx < 1e-9) return { k: p[0].F / p[0].G, p: 1 };
+  const pe = sxy / sxx; return { k: Math.exp(my - pe * mx), p: pe };
+}
+function startCal() {
+  const g = +el('calG').value; if (!(g > 0)) return; if (lastT === 0) { log('Sem dados: conecte primeiro.'); return; }
+  calCap = { until: lastT + 1500, vals: [], grams: g }; log('Registrando ' + g + ' g... mantenha o peso parado por 1,5 s.');
+}
+function finishCal() {
+  const v = calCap.vals; const mean = v.reduce((a, b) => a + b, 0) / Math.max(1, v.length);
+  calPts.push({ grams: calCap.grams, F: calCap.grams * 9.80665 / 1000, G: mean }); calCap = null;
+  const fit = fitPowerLaw(calPts); if (fit) { CFG.k = fit.k; CFG.p = fit.p; }
+  renderCal(); saveCal(); updateCards();
+}
+function renderCal() {
+  const tb = el('calT').querySelector('tbody'); tb.innerHTML = '';
+  calPts.forEach(q => { const tr = document.createElement('tr'); tr.innerHTML = '<td>' + q.grams + '</td><td>' + fmt(q.F, 2) + '</td><td>' + fmt(q.G, 1) + '</td>'; tb.appendChild(tr); });
+  el('calR').textContent = 'Calibração atual: k = ' + CFG.k.toFixed(4) + ' N/µS, p = ' + CFG.p.toFixed(2) + (calPts.length ? ' · ' + calPts.length + ' ponto(s)' : ' (valor inicial aproximado; calibre antes de confiar nos newtons)');
+}
+function saveCal() { try { localStorage.setItem('luva_cal', JSON.stringify({ k: CFG.k, p: CFG.p, pts: calPts, R: CFG.R, V: CFG.VCC })); } catch (e) {} }
+function loadCal() {
+  try { const s = JSON.parse(localStorage.getItem('luva_cal') || 'null'); if (s) { CFG.k = s.k; CFG.p = s.p; CFG.R = s.R || CFG.R; CFG.VCC = s.V || CFG.VCC; (s.pts || []).forEach(q => calPts.push(q)); } } catch (e) {}
+}
+
+// ---------- gráficos ----------
+function series(kind) {
+  const span = 10000, t1 = lastT, t0 = t1 - span, out = [];
+  const gb = baseMv === null ? 0 : gFromMv(baseMv);
+  for (let i = raw.t.length - 1; i >= 0 && raw.t[i] >= t0; i--) out.push([raw.t[i], kind === 'f' ? forceFromG(Math.max(0, gFromMv(raw.f[i]) - gb)) : raw.z[i]]);
+  return { pts: out.reverse(), t0, t1 };
+}
+function drawChart(cv, kind) {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement), ink = css.getPropertyValue('--mut'), line = css.getPropertyValue('--line');
+  const s = series(kind); const L = 38, B = 16, T = 6, R = 6, pw = w - L - R, ph = h - T - B;
+  let lo, hi;
+  if (kind === 'f') { lo = 0; hi = Math.max(5, ...s.pts.map(p => p[1]) , 1) * 1.15; }
+  else { const m = 1650; let d = 150; s.pts.forEach(p => { d = Math.max(d, Math.abs(p[1] - m)); }); lo = m - d * 1.1; hi = m + d * 1.1; }
+  const X = t => L + (t - s.t0) / (s.t1 - s.t0) * pw, Y = v => T + (1 - (v - lo) / (hi - lo)) * ph;
+  c.strokeStyle = line; c.fillStyle = ink; c.font = '11px system-ui'; c.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4, y = Y(v); c.beginPath(); c.moveTo(L, y); c.lineTo(w - R, y); c.stroke(); c.fillText(v.toFixed(kind === 'f' ? 1 : 0), 2, y + 4); }
+  c.fillStyle = css.getPropertyValue('--shade');
+  events.forEach(e => { const a = Math.max(X(e.tIni), L), b = Math.min(X(e.tIni + e.durMs), w - R); if (b > a) c.fillRect(a, T, b - a, ph); });
+  c.setLineDash([4, 3]); c.strokeStyle = css.getPropertyValue('--acc');
+  marks.forEach(m => { if (m >= s.t0 && m <= s.t1) { c.beginPath(); c.moveTo(X(m), T); c.lineTo(X(m), T + ph); c.stroke(); } });
+  c.setLineDash([]); c.strokeStyle = css.getPropertyValue(kind === 'f' ? '--f' : '--p'); c.lineWidth = 1.6; c.beginPath();
+  s.pts.forEach((p, i) => { const x = X(p[0]), y = Y(p[1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); }); c.stroke();
+}
+function frame() { drawChart(el('cvF'), 'f'); drawChart(el('cvP'), 'p'); requestAnimationFrame(frame); }
+
+// ---------- conexões ----------
+function el(id) { return document.getElementById(id); }
+function log(s) { const l = el('log'); l.textContent = (s + '\n' + l.textContent).slice(0, 1500); }
+function setStatus(s) { conn = s; el('status').innerHTML = 'Estado: <b>' + s + '</b>'; }
+async function connectBle() {
+  if (!navigator.bluetooth) { log('Este navegador não tem Web Bluetooth. Use Chrome ou Edge (Android ou computador).'); return; }
+  try {
+    bleDev = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'Luva' }], optionalServices: [UUID.svc] });
+    bleDev.addEventListener('gattserverdisconnected', () => { setStatus('Desconectado'); chCmd = null; });
+    const srv = await bleDev.gatt.connect(), svc = await srv.getPrimaryService(UUID.svc);
+    const chData = await svc.getCharacteristic(UUID.data); chCmd = await svc.getCharacteristic(UUID.cmd);
+    chData.addEventListener('characteristicvaluechanged', ev => parsePacket(ev.target.value));
+    await chData.startNotifications(); setStatus('Bluetooth conectado');
+  } catch (e) { log('BLE: ' + e.message); }
+}
+async function connectUsb() {
+  if (!navigator.serial) { log('Este navegador não tem Web Serial. Use Chrome ou Edge no computador.'); return; }
+  try {
+    usbPort = await navigator.serial.requestPort(); await usbPort.open({ baudRate: 115200 }); setStatus('USB conectado');
+    const dec = new TextDecoderStream(); usbPort.readable.pipeTo(dec.writable); const rd = dec.readable.getReader(); let buf = '';
+    for (;;) { const { value, done } = await rd.read(); if (done) break; buf += value; let i; while ((i = buf.indexOf('\n')) >= 0) { parseLine(buf.slice(0, i)); buf = buf.slice(i + 1); } }
+  } catch (e) { log('USB: ' + e.message); setStatus('Desconectado'); }
+}
+async function sendCmd(op, text) {
+  if (chCmd) { const d = new Uint8Array([op]); try { if (chCmd.writeValueWithoutResponse) await chCmd.writeValueWithoutResponse(d); else await chCmd.writeValue(d); } catch (e) { log('Comando: ' + e.message); } }
+  else if (usbPort && usbPort.writable) { const w = usbPort.writable.getWriter(); await w.write(new TextEncoder().encode(text + '\n')); w.releaseLock(); }
+  else if (simTimer) { marks.push(lastT); }
+  else log('Conecte primeiro.');
+}
+
+// ---------- simulador (para testar o painel sem a luva) ----------
+function toggleSim() {
+  if (simTimer) { clearInterval(simTimer); simTimer = null; setStatus('Desconectado'); return; }
+  setStatus('Simulador'); let t = 0, idx = 0, state = { on: false, t0: 0, t1: 0, amp: 0 }, next = 600;
+  simTimer = setInterval(() => {
+    t += 5; const noise = () => (Math.random() - 0.5) * 8;
+    if (!state.on && t >= next) { state = { on: true, t0: t, t1: t + 90 + Math.random() * 120, amp: 600 + Math.random() * 1500 }; }
+    let f = 40 + noise(), z = 1650 + noise();
+    if (state.on) {
+      const x = Math.min(1, (t - state.t0) / 8); f += state.amp * x * (1 + 0.04 * Math.sin(t * 0.05));
+      z += 250 * Math.exp(-(t - state.t0) / 25);
+      if (t >= state.t1) { f = 40 + noise(); z -= 220 * Math.exp(-(t - state.t1) / 25); }
+      if (t >= state.t1 + 12) {
+        state.on = false; idx++; const dur = state.t1 - state.t0 + 10, peakMv = state.amp;
+        addEvent({ idx, tIni: state.t0, durMs: dur, peakG: gFromMv(40 + peakMv) - gFromMv(40), meanG: (gFromMv(40 + peakMv) - gFromMv(40)) * 0.8, peakMv, pzDurMs: dur - 9 + Math.random() * 4 });
+        next = t + 250 + Math.random() * 300;
+      }
+    }
+    pushRaw(t, f, z);
+  }, 5);
+}
+
+// ---------- exportação ----------
+function download(name, text) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; a.click(); }
+function csvEvents() {
+  return 'idx;inicio_ms;duracao_fsr_ms;duracao_piezo_ms;pico_N;media_N;pico_uS;media_uS\n' +
+    events.map(e => [e.idx, e.tIni, e.durMs.toFixed(1), e.pzDurMs === null ? '' : e.pzDurMs.toFixed(1), forceFromG(e.peakG).toFixed(2), forceFromG(e.meanG).toFixed(2), e.peakG.toFixed(1), e.meanG.toFixed(1)].join(';')).join('\n');
+}
+function csvRaw() { let s = 't_ms;fsr_mV;piezo_mV\n'; for (let i = 0; i < raw.t.length; i++) s += raw.t[i] + ';' + raw.f[i] + ';' + raw.z[i] + '\n'; return s; }
+
+// ---------- inicialização ----------
+function init() {
+  loadCal(); renderCal(); setStatus('Desconectado');
+  el('bBle').onclick = connectBle; el('bUsb').onclick = connectUsb; el('bSim').onclick = toggleSim;
+  el('bMark').onclick = () => sendCmd(0x03, 'm'); el('bTare').onclick = () => sendCmd(0x04, 't');
+  el('bCal').onclick = startCal; el('bCalClear').onclick = () => { calPts.length = 0; CFG.k = 0.018; CFG.p = 1; renderCal(); saveCal(); updateCards(); };
+  el('cfgR').onchange = e => { CFG.R = +e.target.value || 10000; saveCal(); }; el('cfgV').onchange = e => { CFG.VCC = +e.target.value || 3300; saveCal(); };
+  el('bCsvE').onclick = () => download('eventos_luva.csv', csvEvents()); el('bCsvR').onclick = () => download('sinais_luva.csv', csvRaw());
+  el('bClear').onclick = () => { events.length = marks.length = raw.t.length = raw.f.length = raw.z.length = 0; baseMv = null; el('tbl').querySelector('tbody').innerHTML = ''; };
+  requestAnimationFrame(frame);
+}
+if (typeof __LUVA_TEST_HOOK__ !== 'undefined') Object.assign(__LUVA_TEST_HOOK__, { parsePacket, parseLine, fitPowerLaw, stats, events, raw, marks, CFG, gFromMv, forceFromG, csvEvents });
+if (typeof document !== 'undefined' && document.getElementById('cvF')) init();
+</script>
+</body>
+</html>
